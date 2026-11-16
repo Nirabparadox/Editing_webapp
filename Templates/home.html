@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Basic Online Editor</title>
+  <!-- Tailwind via CDN: no install needed -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- A few reusable Tailwind classes (built with @apply) so the page below stays readable -->
+  <style type="text/tailwindcss">
+    @layer components {
+      .card        { @apply bg-white rounded-xl shadow p-4; }
+      .lbl         { @apply block text-sm font-medium mb-1; }
+      .field       { @apply w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500; }
+      .btn         { @apply px-3 py-2 rounded border border-gray-300 bg-white text-sm hover:border-indigo-400 hover:text-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:text-inherit; }
+      .btn-primary { @apply px-3 py-2 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-600; }
+      .filter-btn  { @apply px-2 py-2 rounded border border-gray-300 bg-white text-sm hover:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500; }
+
+      /* tab / segmented control / chip: a hidden radio or checkbox inside a label */
+      .tab         { @apply cursor-pointer whitespace-nowrap px-3 py-1.5 rounded text-indigo-100 hover:bg-white/10 has-[:checked]:bg-white has-[:checked]:text-indigo-700 has-[:checked]:font-medium focus-within:ring-2 focus-within:ring-white; }
+      .seg         { @apply cursor-pointer px-3 py-1.5 bg-white text-gray-600 hover:bg-gray-50 has-[:checked]:bg-indigo-600 has-[:checked]:text-white focus-within:ring-2 focus-within:ring-inset focus-within:ring-indigo-500; }
+      .chip        { @apply cursor-pointer select-none px-3 py-1.5 rounded-full border border-gray-300 bg-white text-sm hover:border-indigo-400 has-[:checked]:bg-indigo-600 has-[:checked]:border-indigo-600 has-[:checked]:text-white focus-within:ring-2 focus-within:ring-indigo-500; }
+
+      /* collage */
+      .slot        { @apply flex items-center justify-center text-center cursor-pointer rounded border-2 border-dashed border-gray-300 bg-gray-50 text-xs text-gray-400 hover:border-indigo-400 hover:text-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500; }
+      .layout-card { @apply cursor-pointer flex flex-col items-center gap-1 p-2 rounded border border-gray-300 bg-white text-xs hover:border-indigo-400 has-[:checked]:border-indigo-600 has-[:checked]:ring-2 has-[:checked]:ring-indigo-200 focus-within:ring-2 focus-within:ring-indigo-500; }
+
+      /* accordion headings in the tools panel */
+      .acc-sum     { @apply flex items-center justify-between cursor-pointer select-none list-none font-semibold text-sm [&::-webkit-details-marker]:hidden; }
+    }
+  </style>
+</head>
+
+<!-- "group/app" lets each view show itself when its tab radio is checked (no JavaScript needed) -->
+<body class="group/app bg-gray-100 min-h-screen text-gray-800">
+
+  <!-- ===================== HEADER + NAVIGATION ===================== -->
+  <header class="bg-indigo-600 text-white shadow sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+      <h1 class="text-xl font-semibold">Perfect Blend</h1>
+
+      <nav class="flex gap-1 text-sm overflow-x-auto order-last w-full md:order-none md:w-auto md:flex-1" aria-label="Views">
+        <label class="tab"><input type="radio" name="view" id="tab-editor" class="sr-only" checked /> Editor</label>
+        <label class="tab"><input type="radio" name="view" id="tab-collage" class="sr-only" /> Collage</label>
+        <label class="tab"><input type="radio" name="view" id="tab-ai" class="sr-only" /> AI Editor</label>
+        <label class="tab"><input type="radio" name="view" id="tab-gallery" class="sr-only" /> Gallery</label>
+      </nav>
+
+      <div class="flex gap-2 text-sm ml-auto">
+        <a href="#login" class="px-3 py-1.5 rounded hover:bg-white/10">Log in</a>
+        <a href="#register" class="px-3 py-1.5 rounded bg-white text-indigo-700 font-medium hover:bg-indigo-50">Register</a>
+      </div>
+    </div>
+  </header>
+
+
+  <!-- ===================== VIEW 1: EDITOR ===================== -->
+  <main id="view-editor" class="max-w-6xl mx-auto p-4 hidden group-has-[#tab-editor:checked]/app:grid grid-cols-1 md:grid-cols-3 gap-4">
+
+    <div class="md:col-span-2 space-y-4">
+
+      <!-- Undo / redo bar -->
+      <div class="card !py-3 flex flex-wrap items-center gap-2">
+        <button id="undoBtn" type="button" class="btn" title="Undo" disabled>&#8630; Undo</button>
+        <button id="redoBtn" type="button" class="btn" title="Redo" disabled>&#8631; Redo</button>
+        <span id="imageInfo" class="ml-auto text-sm text-gray-500">No image loaded</span>
+      </div>
+
+      <!-- Canvas area -->
+      <section class="bg-white rounded-xl shadow p-4 flex items-center justify-center min-h-[400px]">
+        <p id="placeholder" class="text-gray-400">Upload an image to start editing</p>
+        <canvas id="canvas" class="hidden max-w-full max-h-[70vh] border rounded"></canvas>
+      </section>
+
+      <!-- Before / after comparison -->
+      <section class="card">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="text-sm font-semibold">Before / after comparison</h2>
+          <div class="inline-flex rounded border border-gray-300 overflow-hidden text-sm" role="group" aria-label="Compare mode">
+            <label class="seg"><input type="radio" name="compareMode" value="edited" class="sr-only" checked /> Edited</label>
+            <label class="seg"><input type="radio" name="compareMode" value="original" class="sr-only" /> Original</label>
+            <label class="seg"><input type="radio" name="compareMode" value="split" class="sr-only" /> Split</label>
+          </div>
+        </div>
+        <div class="mt-3">
+          <label for="compareSlider" class="sr-only">Comparison position</label>
+          <input id="compareSlider" type="range" min="0" max="100" value="50" class="w-full accent-indigo-600" disabled />
+          <div class="flex justify-between text-xs text-gray-500"><span>Original</span><span>Edited</span></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Tools panel -->
+    <aside class="space-y-3">
+
+      <!-- 1. Image -->
+      <details class="card group/d" open>
+        <summary class="acc-sum">Image <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3">
+          <label for="fileInput" class="block text-sm font-medium mb-1">Upload image</label>
+          <input id="fileInput" type="file" accept="image/*"
+                 class="block w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700" />
+        </div>
+      </details>
+
+      <!-- 2. Brightness and contrast -->
+      <details class="card group/d" open>
+        <summary class="acc-sum">Brightness &amp; contrast <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-4">
+          <div>
+            <label for="brightness" class="block text-sm font-medium">Brightness: <span id="brightnessVal">0</span></label>
+            <input id="brightness" type="range" min="-100" max="100" value="0" class="w-full accent-indigo-600" disabled />
+          </div>
+          <div>
+            <label for="contrast" class="block text-sm font-medium">Contrast: <span id="contrastVal">0</span></label>
+            <input id="contrast" type="range" min="-100" max="100" value="0" class="w-full accent-indigo-600" disabled />
+          </div>
+        </div>
+      </details>
+
+      <!-- 3. Filters -->
+      <details class="card group/d" open>
+        <summary class="acc-sum">Filters <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-4">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            <button data-filter="none"      class="filter-btn bg-indigo-600 text-white">None</button>
+            <button data-filter="grayscale" class="filter-btn">Grayscale</button>
+            <button data-filter="sepia"     class="filter-btn">Sepia</button>
+            <button data-filter="blur"      class="filter-btn">Blur</button>
+            <button data-filter="sharpen"   class="filter-btn">Sharpen</button>
+            <button data-filter="invert"    class="filter-btn">Invert</button>
+          </div>
+          <div>
+            <label for="filterStrength" class="block text-sm font-medium">Filter strength: <span id="filterStrengthVal">100</span>%</label>
+            <input id="filterStrength" type="range" min="0" max="100" value="100" class="w-full accent-indigo-600" disabled />
+          </div>
+        </div>
+      </details>
+
+      <!-- 4. Crop and resize -->
+      <details class="card group/d">
+        <summary class="acc-sum">Crop &amp; resize <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-4">
+
+          <div class="space-y-2">
+            <p class="text-sm font-medium">Crop</p>
+            <div>
+              <label for="cropAspect" class="sr-only">Crop shape</label>
+              <select id="cropAspect" class="field">
+                <option value="free">Free selection</option>
+                <option value="1:1">Square (1:1)</option>
+                <option value="4:3">4:3</option>
+                <option value="3:2">3:2</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16 (story)</option>
+              </select>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label for="cropX" class="text-xs text-gray-500">X (px)</label><input id="cropX" type="number" min="0" value="0" class="field" /></div>
+              <div><label for="cropY" class="text-xs text-gray-500">Y (px)</label><input id="cropY" type="number" min="0" value="0" class="field" /></div>
+              <div><label for="cropW" class="text-xs text-gray-500">Width (px)</label><input id="cropW" type="number" min="1" class="field" /></div>
+              <div><label for="cropH" class="text-xs text-gray-500">Height (px)</label><input id="cropH" type="number" min="1" class="field" /></div>
+            </div>
+            <div class="flex gap-2">
+              <button id="applyCrop" type="button" class="btn-primary flex-1">Apply crop</button>
+              <button id="cancelCrop" type="button" class="btn">Cancel</button>
+            </div>
+          </div>
+
+          <hr class="border-gray-200" />
+
+          <div class="space-y-2">
+            <p class="text-sm font-medium">Resize</p>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label for="resizeW" class="text-xs text-gray-500">Width (px)</label><input id="resizeW" type="number" min="1" class="field" /></div>
+              <div><label for="resizeH" class="text-xs text-gray-500">Height (px)</label><input id="resizeH" type="number" min="1" class="field" /></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="resizeLock" type="checkbox" checked class="accent-indigo-600" />
+              <label for="resizeLock" class="text-sm">Keep aspect ratio</label>
+              <label for="resizeScale" class="sr-only">Scale preset</label>
+              <select id="resizeScale" class="field !w-auto ml-auto">
+                <option value="100">100%</option>
+                <option value="25">25%</option>
+                <option value="50">50%</option>
+                <option value="75">75%</option>
+                <option value="200">200%</option>
+              </select>
+            </div>
+            <button id="applyResize" type="button" class="btn-primary w-full">Apply resize</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- 5. Rotate and flip -->
+      <details class="card group/d" open>
+        <summary class="acc-sum">Rotate &amp; flip <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-4">
+          <div>
+            <label for="rotate" class="block text-sm font-medium">Rotate: <span id="rotateVal">0</span>&deg;</label>
+            <input id="rotate" type="range" min="0" max="360" step="1" value="0" list="rotateTicks" class="w-full accent-indigo-600" disabled />
+            <datalist id="rotateTicks">
+              <option value="0"></option><option value="90"></option><option value="180"></option><option value="270"></option><option value="360"></option>
+            </datalist>
+            <div class="flex justify-between text-xs text-gray-400">
+              <span>0&deg;</span><span>90&deg;</span><span>180&deg;</span><span>270&deg;</span><span>360&deg;</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="rotateLeft"  type="button" class="btn">&#8634; 90&deg; left</button>
+            <button id="rotateRight" type="button" class="btn">&#8635; 90&deg; right</button>
+            <button id="flipH"       type="button" class="btn">&#8596; Flip horizontal</button>
+            <button id="flipV"       type="button" class="btn">&#8597; Flip vertical</button>
+          </div>
+        </div>
+      </details>
+
+      <!-- 6. Text overlay -->
+      <details class="card group/d">
+        <summary class="acc-sum">Text overlay <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-3">
+          <div>
+            <label for="overlayText" class="lbl">Text</label>
+            <input id="overlayText" type="text" placeholder="Type your text" class="field" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="textFont" class="lbl">Font</label>
+              <select id="textFont" class="field">
+                <option>Arial</option>
+                <option>Georgia</option>
+                <option>Times New Roman</option>
+                <option>Courier New</option>
+                <option>Verdana</option>
+                <option>Impact</option>
+              </select>
+            </div>
+            <div>
+              <label for="textColor" class="lbl">Color</label>
+              <input id="textColor" type="color" value="#ffffff" class="h-9 w-full rounded border border-gray-300 bg-white p-1" />
+            </div>
+          </div>
+          <div>
+            <label for="textSize" class="block text-sm font-medium">Size: <span id="textSizeVal">32</span> px</label>
+            <input id="textSize" type="range" min="8" max="200" value="32" class="w-full accent-indigo-600" disabled />
+          </div>
+          <div class="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
+            <div>
+              <label for="textPosition" class="lbl">Position</label>
+              <select id="textPosition" class="field">
+                <option>Top</option>
+                <option selected>Center</option>
+                <option>Bottom</option>
+              </select>
+            </div>
+            <label class="chip !rounded font-bold" title="Bold"><input id="textBold" type="checkbox" class="sr-only" /> B</label>
+            <label class="chip !rounded italic" title="Italic"><input id="textItalic" type="checkbox" class="sr-only" /> I</label>
+          </div>
+          <button id="addText" type="button" class="btn-primary w-full">Add text</button>
+        </div>
+      </details>
+
+      <!-- 7. Remove background -->
+      <details class="card group/d">
+        <summary class="acc-sum">Remove background <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-4">
+          <p class="text-sm text-gray-500">Detects the main subject and cuts out everything behind it.</p>
+          <button id="removeBgBtn" type="button" class="btn-primary w-full">Remove background</button>
+
+          <div>
+            <label for="bgFeather" class="block text-sm font-medium">Edge softness: <span id="bgFeatherVal">2</span> px</label>
+            <input id="bgFeather" type="range" min="0" max="20" value="2" class="w-full accent-indigo-600" disabled />
+          </div>
+
+          <fieldset>
+            <legend class="text-sm font-medium mb-1">Replace with</legend>
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <label class="inline-flex items-center gap-1.5"><input type="radio" name="bgFill" value="transparent" checked class="accent-indigo-600" /> Transparent</label>
+              <label class="inline-flex items-center gap-1.5"><input type="radio" name="bgFill" value="white" class="accent-indigo-600" /> White</label>
+              <label class="inline-flex items-center gap-1.5"><input type="radio" name="bgFill" value="color" class="accent-indigo-600" /> Color
+                <input id="bgColor" type="color" value="#4f46e5" aria-label="Background color" class="h-6 w-8 rounded border border-gray-300 bg-white p-0.5" />
+              </label>
+            </div>
+          </fieldset>
+          <p class="text-xs text-gray-500">A transparent background is saved as PNG.</p>
+        </div>
+      </details>
+
+      <!-- 8. History -->
+      <details class="card group/d">
+        <summary class="acc-sum">History <span class="text-gray-400 transition group-open/d:rotate-180" aria-hidden="true">&#9662;</span></summary>
+        <div class="mt-3 space-y-3">
+          <ol id="historyList" class="list-decimal list-inside text-sm text-gray-500 space-y-1">
+            <li class="list-none text-gray-400">No edits yet</li>
+          </ol>
+          <button id="clearHistory" type="button" class="btn w-full" disabled>Clear history</button>
+        </div>
+      </details>
+
+      <!-- 9. Reset, format, download, save -->
+      <div class="card space-y-3">
+        <div class="flex gap-2">
+          <button id="resetBtn" class="flex-1 px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Reset</button>
+          <select id="format" class="px-2 rounded border">
+            <option value="png">PNG</option>
+            <option value="jpeg">JPG</option>
+          </select>
+          <button id="downloadBtn" class="flex-1 px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Download</button>
+        </div>
+        <div>
+          <label for="quality" class="block text-sm font-medium">JPG quality: <span id="qualityVal">92</span>%</label>
+          <input id="quality" type="range" min="10" max="100" value="92" class="w-full accent-indigo-600" />
+        </div>
+        <button id="saveBtn" type="button" class="btn-primary w-full">Save to my gallery</button>
+        <p class="text-xs text-gray-500">Saved projects are stored on the server and listed in the Gallery tab.</p>
+      </div>
+
+    </aside>
+  </main>
+
+
+  <!-- ===================== VIEW 2: COLLAGE ===================== -->
+  <section id="view-collage" class="group/c max-w-6xl mx-auto p-4 hidden group-has-[#tab-collage:checked]/app:grid grid-cols-1 md:grid-cols-3 gap-4">
+
+    <!-- Collage preview: only the grid for the chosen layout is shown -->
+    <div class="md:col-span-2 card">
+      <h2 class="text-sm font-semibold mb-3">Collage preview</h2>
+
+      <div class="aspect-square max-w-xl mx-auto rounded border border-gray-200 bg-white p-2">
+
+        <!-- 2 x 1 -->
+        <div class="hidden group-has-[#cl-21:checked]/c:grid h-full grid-cols-2 gap-2">
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="1" />+ Photo 1</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="2" />+ Photo 2</label>
+        </div>
+
+        <!-- 2 x 2 (default) -->
+        <div class="hidden group-has-[#cl-22:checked]/c:grid h-full grid-cols-2 grid-rows-2 gap-2">
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="1" />+ Photo 1</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="2" />+ Photo 2</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="3" />+ Photo 3</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="4" />+ Photo 4</label>
+        </div>
+
+        <!-- 1 + 2 -->
+        <div class="hidden group-has-[#cl-12:checked]/c:grid h-full grid-cols-2 grid-rows-2 gap-2">
+          <label class="slot row-span-2"><input type="file" accept="image/*" class="sr-only" data-slot="1" />+ Photo 1</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="2" />+ Photo 2</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="3" />+ Photo 3</label>
+        </div>
+
+        <!-- 3 x 3 -->
+        <div class="hidden group-has-[#cl-33:checked]/c:grid h-full grid-cols-3 grid-rows-3 gap-2">
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="1" />+ 1</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="2" />+ 2</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="3" />+ 3</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="4" />+ 4</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="5" />+ 5</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="6" />+ 6</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="7" />+ 7</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="8" />+ 8</label>
+          <label class="slot"><input type="file" accept="image/*" class="sr-only" data-slot="9" />+ 9</label>
+        </div>
+      </div>
+
+      <p class="mt-3 text-center text-xs text-gray-500">Click a box to choose a photo for it.</p>
+    </div>
+
+    <!-- Collage settings -->
+    <aside class="card space-y-5">
+      <fieldset>
+        <legend class="text-sm font-semibold mb-2">Layout</legend>
+        <div class="grid grid-cols-4 gap-2">
+          <label class="layout-card">
+            <input type="radio" name="collageLayout" id="cl-21" class="sr-only" />
+            <span class="grid grid-cols-2 gap-0.5 h-10 w-full"><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span></span>
+            2 &times; 1
+          </label>
+          <label class="layout-card">
+            <input type="radio" name="collageLayout" id="cl-22" class="sr-only" checked />
+            <span class="grid grid-cols-2 grid-rows-2 gap-0.5 h-10 w-full"><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span></span>
+            2 &times; 2
+          </label>
+          <label class="layout-card">
+            <input type="radio" name="collageLayout" id="cl-12" class="sr-only" />
+            <span class="grid grid-cols-2 grid-rows-2 gap-0.5 h-10 w-full"><span class="bg-indigo-200 rounded-sm row-span-2"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span></span>
+            1 + 2
+          </label>
+          <label class="layout-card">
+            <input type="radio" name="collageLayout" id="cl-33" class="sr-only" />
+            <span class="grid grid-cols-3 grid-rows-3 gap-0.5 h-10 w-full">
+              <span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span>
+              <span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span>
+              <span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span><span class="bg-indigo-200 rounded-sm"></span>
+            </span>
+            3 &times; 3
+          </label>
+        </div>
+      </fieldset>
+
+      <div>
+        <label for="collageRatio" class="lbl">Canvas shape</label>
+        <select id="collageRatio" class="field">
+          <option value="1:1">Square (1:1)</option>
+          <option value="4:5">Portrait (4:5)</option>
+          <option value="16:9">Wide (16:9)</option>
+          <option value="9:16">Story (9:16)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="collageGap" class="block text-sm font-medium">Spacing: <span id="collageGapVal">8</span> px</label>
+        <input id="collageGap" type="range" min="0" max="40" value="8" class="w-full accent-indigo-600" />
+      </div>
+
+      <div>
+        <label for="collageRadius" class="block text-sm font-medium">Rounded corners: <span id="collageRadiusVal">4</span> px</label>
+        <input id="collageRadius" type="range" min="0" max="40" value="4" class="w-full accent-indigo-600" />
+      </div>
+
+      <div>
+        <label for="collageBg" class="lbl">Background color</label>
+        <input id="collageBg" type="color" value="#ffffff" class="h-9 w-full rounded border border-gray-300 bg-white p-1" />
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button id="collageShuffle" type="button" class="btn">Shuffle photos</button>
+        <button id="collageClear"   type="button" class="btn">Clear all</button>
+        <button id="collageToEditor" type="button" class="btn col-span-2">Open in editor</button>
+        <button id="collageDownload" type="button" class="btn-primary col-span-2">Download collage</button>
+      </div>
+    </aside>
+  </section>
+
+
+  <!-- ===================== VIEW 3: AI PHOTO EDITOR ===================== -->
+  <section id="view-ai" class="max-w-6xl mx-auto p-4 hidden group-has-[#tab-ai:checked]/app:grid grid-cols-1 md:grid-cols-3 gap-4">
+
+    <div class="md:col-span-2 space-y-4">
+
+      <!-- Source image -->
+      <div class="card">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 class="text-sm font-semibold">Source image</h2>
+          <div class="flex flex-wrap gap-2">
+            <button id="aiUseEditor" type="button" class="btn">Use image from editor</button>
+            <label for="aiFile" class="btn cursor-pointer">Upload instead</label>
+            <input id="aiFile" type="file" accept="image/*" class="sr-only" />
+          </div>
+        </div>
+        <div id="aiSource" class="flex items-center justify-center min-h-[260px] rounded border-2 border-dashed border-gray-300 bg-gray-50 text-gray-400">
+          No image selected
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="card">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h2 class="text-sm font-semibold">Results</h2>
+          <div class="flex gap-2">
+            <button id="aiRegenerate" type="button" class="btn" disabled>Regenerate</button>
+            <button id="aiApply" type="button" class="btn-primary" disabled>Apply to editor</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <label class="cursor-pointer">
+            <input type="radio" name="aiResult" value="1" class="sr-only peer" />
+            <span class="flex aspect-square items-center justify-center rounded border border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 text-xs text-gray-400 peer-checked:ring-2 peer-checked:ring-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500">Variation 1</span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="aiResult" value="2" class="sr-only peer" />
+            <span class="flex aspect-square items-center justify-center rounded border border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 text-xs text-gray-400 peer-checked:ring-2 peer-checked:ring-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500">Variation 2</span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="aiResult" value="3" class="sr-only peer" />
+            <span class="flex aspect-square items-center justify-center rounded border border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 text-xs text-gray-400 peer-checked:ring-2 peer-checked:ring-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500">Variation 3</span>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="aiResult" value="4" class="sr-only peer" />
+            <span class="flex aspect-square items-center justify-center rounded border border-gray-200 bg-gradient-to-br from-gray-100 to-gray-200 text-xs text-gray-400 peer-checked:ring-2 peer-checked:ring-indigo-600 peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500">Variation 4</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI controls -->
+    <aside class="card space-y-5 self-start">
+      <div>
+        <label for="aiPrompt" class="lbl">Describe the edit</label>
+        <textarea id="aiPrompt" rows="4" placeholder="e.g. Make the sky a warm sunset and soften the shadows" class="field"></textarea>
+      </div>
+
+      <fieldset>
+        <legend class="text-sm font-medium mb-2">Quick actions</legend>
+        <div class="flex flex-wrap gap-2">
+          <label class="chip"><input type="checkbox" name="aiPreset" value="enhance" class="sr-only" /> Auto enhance</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="upscale" class="sr-only" /> Upscale 2&times;</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="denoise" class="sr-only" /> Denoise</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="colorize" class="sr-only" /> Colorize</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="portrait" class="sr-only" /> Portrait retouch</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="sky" class="sr-only" /> Replace sky</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="object" class="sr-only" /> Remove object</label>
+          <label class="chip"><input type="checkbox" name="aiPreset" value="cartoon" class="sr-only" /> Cartoon style</label>
+        </div>
+      </fieldset>
+
+      <div>
+        <label for="aiStrength" class="block text-sm font-medium">Creativity: <span id="aiStrengthVal">50</span>%</label>
+        <input id="aiStrength" type="range" min="0" max="100" value="50" class="w-full accent-indigo-600" />
+        <div class="flex justify-between text-xs text-gray-500"><span>Stay close to original</span><span>More creative</span></div>
+      </div>
+
+      <div class="space-y-2 text-sm">
+        <label class="flex items-center gap-2"><input id="aiKeepSize" type="checkbox" checked class="accent-indigo-600" /> Keep original size</label>
+        <label class="flex items-center gap-2"><input id="aiKeepColors" type="checkbox" class="accent-indigo-600" /> Keep original colors</label>
+      </div>
+
+      <button id="aiGenerate" type="button" class="btn-primary w-full inline-flex items-center justify-center gap-2">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/></svg>
+        Generate
+      </button>
+      <p class="text-xs text-gray-500">AI edits run on the server and can take a few seconds.</p>
+    </aside>
+  </section>
+
+
+  <!-- ===================== VIEW 4: GALLERY ===================== -->
+  <section id="view-gallery" class="max-w-6xl mx-auto p-4 hidden group-has-[#tab-gallery:checked]/app:block space-y-4">
+
+    <div class="card flex flex-wrap items-center gap-3">
+      <h2 class="text-lg font-semibold mr-auto">My projects</h2>
+      <label for="gallerySearch" class="sr-only">Search projects</label>
+      <input id="gallerySearch" type="search" placeholder="Search projects" class="field !w-56" />
+      <label for="gallerySort" class="sr-only">Sort projects</label>
+      <select id="gallerySort" class="field !w-auto">
+        <option>Newest first</option>
+        <option>Oldest first</option>
+        <option>Name (A&ndash;Z)</option>
+      </select>
+      <label for="tab-editor" class="btn-primary cursor-pointer">New project</label>
+    </div>
+
+    <p class="rounded-lg bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+      Each account sees only its own projects. <a href="#login" class="font-medium underline">Log in</a> or <a href="#register" class="font-medium underline">register</a> to load yours.
+    </p>
+
+    <!-- Sample cards: replace with a loop over saved projects when the backend is connected -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-rose-300 to-orange-200"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 1</h3>
+          <p class="text-xs text-gray-500">Edited 2 days ago &middot; JPG &middot; 1920&times;1080</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-sky-300 to-indigo-300"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 2</h3>
+          <p class="text-xs text-gray-500">Edited 5 days ago &middot; PNG &middot; 1200&times;1200</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-emerald-300 to-teal-200"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 3</h3>
+          <p class="text-xs text-gray-500">Edited last week &middot; JPG &middot; 3000&times;2000</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-amber-300 to-yellow-100"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 4</h3>
+          <p class="text-xs text-gray-500">Edited 2 weeks ago &middot; PNG &middot; 800&times;600</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-fuchsia-300 to-purple-300"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 5</h3>
+          <p class="text-xs text-gray-500">Edited last month &middot; JPG &middot; 2048&times;1365</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="card !p-0 overflow-hidden">
+        <div class="aspect-[4/3] bg-gradient-to-br from-slate-400 to-slate-200"></div>
+        <div class="p-3">
+          <h3 class="text-sm font-medium truncate">Sample project 6</h3>
+          <p class="text-xs text-gray-500">Edited last month &middot; PNG &middot; 1080&times;1920</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <label for="tab-editor" class="btn flex-1 text-center cursor-pointer">Open</label>
+            <button type="button" class="btn">Download</button>
+            <button type="button" class="btn !text-red-600 hover:!border-red-300">Delete</button>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+
+  <footer class="max-w-6xl mx-auto px-6 py-6 text-center text-xs text-gray-500">
+    Basic Online Editing Website &middot; Digital Image Processing Lab (CSE 424)
+  </footer>
+
+
+  <!-- ===================== LOG IN / REGISTER (opened with #login and #register links) ===================== -->
+  <div id="login" class="hidden target:flex fixed inset-0 z-50 items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="card relative w-full max-w-sm">
+      <a href="#" class="absolute top-3 right-4 text-xl leading-none text-gray-400 hover:text-gray-700" aria-label="Close">&times;</a>
+      <h2 id="login-title" class="text-lg font-semibold mb-4">Log in</h2>
+      <form action="" method="post" class="space-y-3">
+        <!-- Django: add {% csrf_token %} here -->
+        <div>
+          <label for="loginUser" class="lbl">Username</label>
+          <input id="loginUser" name="username" type="text" autocomplete="username" required class="field" />
+        </div>
+        <div>
+          <label for="loginPass" class="lbl">Password</label>
+          <input id="loginPass" name="password" type="password" autocomplete="current-password" required class="field" />
+        </div>
+        <button type="submit" class="btn-primary w-full">Log in</button>
+      </form>
+      <p class="mt-4 text-sm text-gray-500">No account yet? <a href="#register" class="text-indigo-600 hover:underline">Register</a></p>
+    </div>
+  </div>
+
+  <div id="register" class="hidden target:flex fixed inset-0 z-50 items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="register-title">
+    <div class="card relative w-full max-w-sm">
+      <a href="#" class="absolute top-3 right-4 text-xl leading-none text-gray-400 hover:text-gray-700" aria-label="Close">&times;</a>
+      <h2 id="register-title" class="text-lg font-semibold mb-4">Create an account</h2>
+      <form action="" method="post" class="space-y-3">
+        <!-- Django: add {% csrf_token %} here -->
+        <div>
+          <label for="regUser" class="lbl">Username</label>
+          <input id="regUser" name="username" type="text" autocomplete="username" required class="field" />
+        </div>
+        <div>
+          <label for="regEmail" class="lbl">Email</label>
+          <input id="regEmail" name="email" type="email" autocomplete="email" required class="field" />
+        </div>
+        <div>
+          <label for="regPass" class="lbl">Password</label>
+          <input id="regPass" name="password1" type="password" autocomplete="new-password" required class="field" />
+        </div>
+        <div>
+          <label for="regPass2" class="lbl">Confirm password</label>
+          <input id="regPass2" name="password2" type="password" autocomplete="new-password" required class="field" />
+        </div>
+        <button type="submit" class="btn-primary w-full">Register</button>
+      </form>
+      <p class="mt-4 text-sm text-gray-500">Already registered? <a href="#login" class="text-indigo-600 hover:underline">Log in</a></p>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
