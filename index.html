@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Basic Online Editor</title>
+  <!-- Tailwind via CDN: no install needed -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style type="text/tailwindcss">
+    @layer components {
+      .btn   { @apply px-3 py-2 rounded border bg-white text-sm hover:border-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed; }
+      .btn-p { @apply px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed; }
+      .field { @apply w-full rounded border px-2 py-1.5 text-sm; }
+      .head  { @apply text-sm font-semibold mb-2; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800">
+
+  <header class="bg-indigo-600 text-white px-6 py-4 shadow">
+    <h1 class="text-xl font-semibold">Basic Online Editing Website</h1>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+
+    <div class="md:col-span-2 space-y-4">
+
+      <!-- Undo / redo / compare bar -->
+      <div class="bg-white rounded-xl shadow p-3 flex flex-wrap items-center gap-2">
+        <button id="undoBtn" class="btn" disabled>&#8630; Undo</button>
+        <button id="redoBtn" class="btn" disabled>&#8631; Redo</button>
+        <label class="flex items-center gap-1 text-sm ml-2">
+          <input id="showOriginal" type="checkbox" data-needs-image disabled /> Show original (before / after)
+        </label>
+        <span id="status" class="ml-auto text-sm text-gray-500">No image loaded</span>
+      </div>
+
+      <!-- Canvas area -->
+      <section class="bg-white rounded-xl shadow p-4 flex items-center justify-center min-h-[400px]">
+        <p id="placeholder" class="text-gray-400">Upload an image to start editing</p>
+        <canvas id="canvas" class="hidden max-w-full max-h-[70vh] border rounded touch-none"></canvas>
+      </section>
+
+      <!-- History -->
+      <section class="bg-white rounded-xl shadow p-4">
+        <p class="head">History</p>
+        <ol id="historyList" class="list-decimal list-inside text-sm text-gray-500 space-y-1"></ol>
+      </section>
+    </div>
+
+    <!-- Tools panel -->
+    <aside class="bg-white rounded-xl shadow p-4 space-y-5">
+
+      <div>
+        <label class="block text-sm font-medium mb-1">Upload image</label>
+        <input id="fileInput" type="file" accept="image/*"
+               class="block w-full text-sm file:mr-3 file:py-2 file:px-3 file:rounded file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700" />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium">Brightness: <span id="brightnessVal">0</span></label>
+        <input id="brightness" type="range" min="-100" max="100" value="0" class="w-full" disabled />
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium">Contrast: <span id="contrastVal">0</span></label>
+        <input id="contrast" type="range" min="-100" max="100" value="0" class="w-full" disabled />
+      </div>
+
+      <div>
+        <p class="head">Filters</p>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-filter="none"      class="filter-btn btn bg-indigo-600 text-white">None</button>
+          <button data-filter="grayscale" class="filter-btn btn" data-needs-image disabled>Grayscale</button>
+          <button data-filter="sepia"     class="filter-btn btn" data-needs-image disabled>Sepia</button>
+          <button data-filter="invert"    class="filter-btn btn" data-needs-image disabled>Invert</button>
+          <button data-filter="blur"      class="filter-btn btn" data-needs-image disabled>Blur</button>
+          <button data-filter="sharpen"   class="filter-btn btn" data-needs-image disabled>Sharpen</button>
+        </div>
+      </div>
+
+      <div>
+        <p class="head">Rotate &amp; flip</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button id="rotL" class="btn" data-needs-image disabled>&#8634; 90&deg; left</button>
+          <button id="rotR" class="btn" data-needs-image disabled>&#8635; 90&deg; right</button>
+          <button id="flipH" class="btn" data-needs-image disabled>&#8596; Flip horizontal</button>
+          <button id="flipV" class="btn" data-needs-image disabled>&#8597; Flip vertical</button>
+        </div>
+      </div>
+
+      <div>
+        <p class="head">Crop</p>
+        <p class="text-xs text-gray-500 mb-2">Drag on the image to select an area.</p>
+        <div class="flex gap-2">
+          <button id="applyCrop"  class="btn-p flex-1" data-needs-image disabled>Apply crop</button>
+          <button id="cancelCrop" class="btn" data-needs-image disabled>Cancel</button>
+        </div>
+      </div>
+
+      <div>
+        <p class="head">Resize</p>
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <div><label class="text-xs text-gray-500">Width (px)</label><input id="resizeW" type="number" min="1" class="field" /></div>
+          <div><label class="text-xs text-gray-500">Height (px)</label><input id="resizeH" type="number" min="1" class="field" /></div>
+        </div>
+        <label class="flex items-center gap-2 text-sm mb-2"><input id="resizeLock" type="checkbox" checked /> Keep aspect ratio</label>
+        <button id="applyResize" class="btn-p w-full" data-needs-image disabled>Apply resize</button>
+      </div>
+
+      <div>
+        <p class="head">Text overlay</p>
+        <div class="space-y-2">
+          <input id="textInput" type="text" placeholder="Type your text" class="field" />
+          <div class="grid grid-cols-2 gap-2">
+            <select id="textFont" class="field">
+              <option>Arial</option><option>Georgia</option><option>Times New Roman</option>
+              <option>Courier New</option><option>Verdana</option><option>Impact</option>
+            </select>
+            <input id="textColor" type="color" value="#ffffff" class="h-9 w-full rounded border p-1" />
+          </div>
+          <label class="block text-sm font-medium">Size: <span id="textSizeVal">48</span> px</label>
+          <input id="textSize" type="range" min="8" max="300" value="48" class="w-full" />
+          <div class="grid grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <select id="textPos" class="field"><option>Top</option><option selected>Center</option><option>Bottom</option></select>
+            <label class="text-sm font-bold"><input id="textBold" type="checkbox" /> B</label>
+            <label class="text-sm italic"><input id="textItalic" type="checkbox" /> I</label>
+          </div>
+          <button id="addText" class="btn-p w-full" data-needs-image disabled>Add text</button>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <div class="flex gap-2">
+          <button id="resetBtn" class="flex-1 px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">Reset</button>
+          <select id="format" class="px-2 rounded border">
+            <option value="png">PNG</option>
+            <option value="jpeg">JPG</option>
+          </select>
+          <button id="downloadBtn" class="flex-1 px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700">Download</button>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">JPG quality: <span id="qualityVal">92</span>%</label>
+          <input id="quality" type="range" min="10" max="100" value="92" class="w-full" />
+        </div>
+      </div>
+
+    </aside>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
